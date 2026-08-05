@@ -20,3 +20,6 @@ requests==2.31.0
 
 # Optional: For better development experience
 python-dotenv==1.0.0  # For managing environment variables
+
+# Optional: just for my Web Server need[Render-free online website hosting platform]
+gunicorn==23.0.0

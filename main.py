@@ -110,6 +110,16 @@ def send_staff_notification():
 
 def get_db_connection():
     try:
+        connection = psycopg2.connect(os.environ["DATABASE_URL"])
+        return connection
+    except Exception as e:
+        print("Database Error:", e)
+        return None
+
+"""
+#Postgres sql 
+def get_db_connection():
+    try:
         connection = psycopg2.connect(
                 host="localhost",
                 port="5432",
@@ -122,12 +132,12 @@ def get_db_connection():
         print("Database Error:", e)
         return None
 
-"""
+# Mssql Pyodbc 
 def get_db_connection():
     #Establish and return a SQL Server database connection.
     try:
         connection = pyodbc.connect(
-            "DRIVER={SQL Server};"
+            "DRIVER={};"
             "SERVER=LAPTOP-SBLEMHDL\\SQLEXPRESS;"  # Update with your SQL Server name
             "DATABASE=LibraryDB;"  # Your database name
             "Trusted_Connection=yes;"  # Use Windows Authentication
