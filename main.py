@@ -1,6 +1,7 @@
 import email
 from datetime import datetime, timedelta
-import pyodbc
+import psycopg2
+#import pyodbc
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, Response
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
@@ -108,7 +109,22 @@ def send_staff_notification():
         return jsonify({'error': str(e)}), 500
 
 def get_db_connection():
-    """Establish and return a SQL Server database connection."""
+    try:
+        connection = psycopg2.connect(
+                host="localhost",
+                port="5432",
+                database="librarydb",
+                user="postgres",
+                password="12345"
+                )
+        return connection
+    except Exception as e:
+        print("Database Error:", e)
+        return None
+
+"""
+def get_db_connection():
+    #Establish and return a SQL Server database connection.
     try:
         connection = pyodbc.connect(
             "DRIVER={SQL Server};"
@@ -121,6 +137,7 @@ def get_db_connection():
         print(f"❌ Error connecting to SQL Server: {e}")
         return None
 
+"""
 
 @app.route('/')
 def home():
@@ -139,7 +156,7 @@ def login():
         if conn is None:
             return render_template('Login.html', error='Database connection failed')
         cursor = conn.cursor()
-        cursor.execute("SELECT password_hash FROM Users WHERE username = ?", (username,))
+        cursor.execute("SELECT password_hash FROM Users WHERE username = %s", (username,))
         user = cursor.fetchone()
         conn.close()
 
@@ -176,14 +193,14 @@ def register():
         cursor = conn.cursor()
 
         # Check if username exists
-        cursor.execute("SELECT username FROM Users WHERE username = ?", (username,))
+        cursor.execute("SELECT username FROM Users WHERE username = %s", (username,))
         if cursor.fetchone():
             conn.close()
             return render_template('Create.html', error='Username already exists')
 
         password_hash = generate_password_hash(password)
         cursor.execute(
-            "INSERT INTO Users (name, email, username, password_hash) VALUES (?, ?, ?, ?)",
+            "INSERT INTO Users (name, email, username, password_hash) VALUES (%s, %s, %s, %s)",
             (name, email, username, password_hash)
         )
         conn.commit()
@@ -225,11 +242,11 @@ def new_student():
         try:
             cursor.execute("""
                 INSERT INTO Students (student_id, name, batch, course, dob, gender, email, phone) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """, (student_id, name, batch, course, dob, gender, email, phone))  # Add email to insert
             conn.commit()
             flash('Student registered successfully!', 'success')
-        except pyodbc.Error as e:
+        except psycopg2.Error as e:
             flash(f'Error registering student: {e}', 'error')
         finally:
             conn.close()
@@ -264,18 +281,18 @@ def new_book():
 
         try:
             # Check if book_id already exists
-            cursor.execute("SELECT book_id FROM Books WHERE book_id = ?", (book_id,))
+            cursor.execute("SELECT book_id FROM Books WHERE book_id = %s", (book_id,))
             if cursor.fetchone():
                 flash('Book ID already exists.', 'error')
             else:
                 # Insert new book with author_name instead of edition
                 cursor.execute("""
                     INSERT INTO Books (book_id, book_name, author_name, publisher)
-                    VALUES (?, ?, ?, ?)
+                    VALUES (%s, %s, %s, %s)
                 """, (book_id, book_name, author_name, publisher))
                 conn.commit()
                 flash('Book added successfully!', 'success')
-        except pyodbc.Error as e:
+        except psycopg2.Error as e:
             flash(f'Error adding book: {e}', 'error')
 
     conn.close()
@@ -312,11 +329,11 @@ def new_staff():
         try:
             cursor.execute("""
                 INSERT INTO Staff (staff_register, staff_name, designation, date_of_birth, gender, email, phone_number)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (staff_register, staff_name, designation, date_of_birth, gender, email, phone_number))  # Add gender and email to insert
             conn.commit()
             flash('Staff registered successfully!', 'success')
-        except pyodbc.Error as e:
+        except psycopg2.Error as e:
             flash(f'Error registering staff: {e}', 'error')
         finally:
             conn.close()
@@ -364,7 +381,7 @@ def staff_issue_book():
         cursor.execute("""
             SELECT staff_name, designation, phone_number, email
             FROM Staff 
-            WHERE staff_register = ?
+            WHERE staff_register = %s
         """, (staff_register,))
         staff = cursor.fetchone()
 
@@ -375,7 +392,7 @@ def staff_issue_book():
                 # Insert into Staff_IssuedBooks table
                 cursor.execute("""
                     INSERT INTO Staff_IssuedBooks (book_id, staff_register, issue_date) 
-                    VALUES (?, ?, ?)
+                    VALUES (%s, %s, %s)
                 """, (book_id, staff_register, issue_date))
                 conn.commit()
 
@@ -413,7 +430,7 @@ def staff_issue_book():
                 except smtplib.SMTPException as e:
                     flash(f'Book issued successfully to {staff_name}, but notification failed: {str(e)}', 'error')
 
-            except pyodbc.Error as e:
+            except psycopg2.Error as e:
                 flash(f'Error issuing book: {e}', 'error')
 
     conn.close()
@@ -428,7 +445,7 @@ def get_staff():
         return jsonify({'error': 'Database connection failed'})
 
     cursor = conn.cursor()
-    cursor.execute("SELECT staff_name, designation, phone_number, email FROM Staff WHERE staff_register = ?",
+    cursor.execute("SELECT staff_name, designation, phone_number, email FROM Staff WHERE staff_register = %s",
                    (staff_register,))
     staff = cursor.fetchone()
     conn.close()
@@ -463,7 +480,7 @@ def staff_return_book():
         cursor.execute("""
             SELECT staff_register, book_id, issue_date 
             FROM Staff_IssuedBooks 
-            WHERE issue_id = ? AND return_date IS NULL
+            WHERE issue_id = %s AND return_date IS NULL
         """, (issue_id,))
         issue = cursor.fetchone()
 
@@ -474,19 +491,19 @@ def staff_return_book():
                 # Insert into Staff_Return_book table
                 cursor.execute("""
                     INSERT INTO Staff_Return_book (issue_id, staff_register, book_id, issue_date, return_date)
-                    VALUES (?, ?, ?, ?, ?)
+                    VALUES (%s, %s, %s, %s, %s)
                 """, (issue_id, issue[0], issue[1], issue[2], return_date))
 
                 # Update Staff_IssuedBooks to mark as returned
                 cursor.execute("""
                     UPDATE Staff_IssuedBooks 
-                    SET return_date = ? 
-                    WHERE issue_id = ?
+                    SET return_date = %s 
+                    WHERE issue_id = %s
                 """, (return_date, issue_id))
 
                 conn.commit()
                 flash('Book returned and details saved successfully!', 'success')
-            except pyodbc.Error as e:
+            except psycopg2.Error as e:
                 flash(f'Error processing return: {e}', 'error')
 
     # Fetch all issued books for staff that haven't been returned, including email
@@ -539,7 +556,7 @@ def issue_book():
         cursor.execute("""
             SELECT name, course, batch, phone, email 
             FROM Students 
-            WHERE student_id = ?
+            WHERE student_id = %s
         """, (student_roll,))
         student = cursor.fetchone()
 
@@ -550,7 +567,7 @@ def issue_book():
                 # Insert into IssuedBooks table
                 cursor.execute("""
                     INSERT INTO IssuedBooks (book_id, student_id, issue_date) 
-                    VALUES (?, ?, ?)
+                    VALUES (%s, %s, %s)
                 """, (book_id, student_roll, issue_date))
                 conn.commit()
 
@@ -588,7 +605,7 @@ def issue_book():
                 except smtplib.SMTPException as e:
                     flash(f'Book issued successfully to {student_name}, but notification failed: {str(e)}', 'error')
 
-            except pyodbc.Error as e:
+            except psycopg2.Error as e:
                 flash(f'Error issuing book: {e}', 'error')
 
     conn.close()
@@ -606,7 +623,7 @@ def get_student():
     cursor.execute("""
         SELECT name, course, batch, phone, email 
         FROM Students 
-        WHERE student_id = ?
+        WHERE student_id = %s
     """, (roll,))
     student = cursor.fetchone()
     conn.close()
@@ -643,7 +660,7 @@ def return_book():
         cursor.execute("""
             SELECT student_id, book_id, issue_date 
             FROM IssuedBooks 
-            WHERE issue_id = ? AND return_date IS NULL
+            WHERE issue_id = %s AND return_date IS NULL
         """, (issue_id,))
         issue = cursor.fetchone()
 
@@ -654,19 +671,19 @@ def return_book():
                 # Insert into Return_book table
                 cursor.execute("""
                     INSERT INTO Return_book (issue_id, student_id, book_id, issue_date, return_date)
-                    VALUES (?, ?, ?, ?, ?)
+                    VALUES (%s, %s, %s, %s, %s)
                 """, (issue_id, issue[0], issue[1], issue[2], return_date))
 
                 # Update IssuedBooks to mark as returned
                 cursor.execute("""
                     UPDATE IssuedBooks 
-                    SET return_date = ? 
-                    WHERE issue_id = ?
+                    SET return_date = %s 
+                    WHERE issue_id = %s
                 """, (return_date, issue_id))
 
                 conn.commit()
                 flash('Book returned and details saved successfully!', 'success')
-            except pyodbc.Error as e:
+            except psycopg2.Error as e:
                 flash(f'Error processing return: {e}', 'error')
 
     # Fetch all issued books that haven't been returned, including email
@@ -710,17 +727,17 @@ def edit_book():
             try:
                 # Check if the book is currently issued
                 cursor.execute("""
-                    SELECT book_id FROM IssuedBooks WHERE book_id = ? AND return_date IS NULL
+                    SELECT book_id FROM IssuedBooks WHERE book_id = %s AND return_date IS NULL
                     UNION
-                    SELECT book_id FROM Staff_IssuedBooks WHERE book_id = ? AND return_date IS NULL
+                    SELECT book_id FROM Staff_IssuedBooks WHERE book_id = %s AND return_date IS NULL
                 """, (book_id, book_id))
                 if cursor.fetchone():
                     flash('Cannot delete book: it is currently issued.', 'error')
                 else:
-                    cursor.execute("DELETE FROM Books WHERE book_id = ?", (book_id,))
+                    cursor.execute("DELETE FROM Books WHERE book_id = %s", (book_id,))
                     conn.commit()
                     flash('Book deleted successfully!', 'success')
-            except pyodbc.Error as e:
+            except psycopg2.Error as e:
                 flash(f'Error deleting book: {e}', 'error')
 
         elif action == 'edit':
@@ -731,12 +748,12 @@ def edit_book():
             try:
                 cursor.execute("""
                     UPDATE Books 
-                    SET book_name = ?, author_name = ?, publisher = ?  -- Changed edition to author_name
-                    WHERE book_id = ?
+                    SET book_name = %s, author_name = %s, publisher = %s  -- Changed edition to author_name
+                    WHERE book_id = %s
                 """, (book_name, author_name, publisher, book_id))
                 conn.commit()
                 flash('Book updated successfully!', 'success')
-            except pyodbc.Error as e:
+            except psycopg2.Error as e:
                 flash(f'Error updating book: {e}', 'error')
 
     # Fetch all books for display
@@ -768,15 +785,15 @@ def edit_staff():
                 cursor.execute("""
                     SELECT staff_register 
                     FROM Staff_IssuedBooks 
-                    WHERE staff_register = ?
+                    WHERE staff_register = %s
                 """, (staff_register,))
                 if cursor.fetchone():
                     flash('Cannot delete staff: they have issued book records.', 'error')
                 else:
-                    cursor.execute("DELETE FROM Staff WHERE staff_register = ?", (staff_register,))
+                    cursor.execute("DELETE FROM Staff WHERE staff_register = %s", (staff_register,))
                     conn.commit()
                     flash('Staff deleted successfully!', 'success')
-            except pyodbc.Error as e:
+            except psycopg2.Error as e:
                 flash(f'Error deleting staff: {e}', 'error')
 
         elif action == 'edit':
@@ -791,14 +808,14 @@ def edit_staff():
                 date_of_birth = datetime.strptime(date_of_birth, '%Y-%m-%d').date().strftime('%Y-%m-%d')
                 cursor.execute("""
                     UPDATE Staff 
-                    SET staff_name = ?, designation = ?, date_of_birth = ?, gender = ?, email = ?, phone_number = ?
-                    WHERE staff_register = ?
+                    SET staff_name = %s, designation = %s, date_of_birth = %s, gender = %s, email = %s, phone_number = %s
+                    WHERE staff_register = %s
                 """, (staff_name, designation, date_of_birth, gender, email, phone_number, staff_register))  # Add gender and email to update
                 conn.commit()
                 flash('Staff updated successfully!', 'success')
             except ValueError:
                 flash('Invalid date format. Please use YYYY-MM-DD.', 'error')
-            except pyodbc.Error as e:
+            except psycopg2.Error as e:
                 flash(f'Error updating staff: {e}', 'error')
 
     # Fetch all staff with gender and email
@@ -830,15 +847,15 @@ def edit_student():
                 cursor.execute("""
                     SELECT student_id 
                     FROM IssuedBooks 
-                    WHERE student_id = ?
+                    WHERE student_id = %s
                 """, (student_id,))
                 if cursor.fetchone():
                     flash('Cannot delete student: they have issued book records.', 'error')
                 else:
-                    cursor.execute("DELETE FROM Students WHERE student_id = ?", (student_id,))
+                    cursor.execute("DELETE FROM Students WHERE student_id = %s", (student_id,))
                     conn.commit()
                     flash('Student deleted successfully!', 'success')
-            except pyodbc.Error as e:
+            except psycopg2.Error as e:
                 flash(f'Error deleting student: {e}', 'error')
 
         elif action == 'edit':
@@ -854,14 +871,14 @@ def edit_student():
                 dob = datetime.strptime(dob, '%Y-%m-%d').date().strftime('%Y-%m-%d')
                 cursor.execute("""
                     UPDATE Students 
-                    SET name = ?, batch = ?, course = ?, dob = ?, gender = ?, email = ?, phone = ?
-                    WHERE student_id = ?
+                    SET name = %s, batch = %s, course = %s, dob = %s, gender = %s, email = %s, phone = %s
+                    WHERE student_id = %s
                 """, (name, batch, course, dob, gender, email, phone, student_id))  # Add email to update
                 conn.commit()
                 flash('Student updated successfully!', 'success')
             except ValueError:
                 flash('Invalid date format. Please use YYYY-MM-DD.', 'error')
-            except pyodbc.Error as e:
+            except psycopg2.Error as e:
                 flash(f'Error updating student: {e}', 'error')
 
     # Fetch all students with email
@@ -1051,7 +1068,7 @@ def delete_book(book_id):
         cursor.execute("""
             SELECT COUNT(*) 
             FROM IssuedBooks 
-            WHERE book_id = ? AND return_date IS NULL
+            WHERE book_id = %s AND return_date IS NULL
         """, (book_id,))
         active_issues = cursor.fetchone()[0]
 
@@ -1059,12 +1076,12 @@ def delete_book(book_id):
             flash('Cannot delete: Book is currently issued to students', 'error')
         else:
             # Delete from IssuedBooks (returned books history)
-            cursor.execute("DELETE FROM IssuedBooks WHERE book_id = ?", (book_id,))
+            cursor.execute("DELETE FROM IssuedBooks WHERE book_id = %s", (book_id,))
             # Delete from Books
-            cursor.execute("DELETE FROM Books WHERE book_id = ?", (book_id,))
+            cursor.execute("DELETE FROM Books WHERE book_id = %s", (book_id,))
             conn.commit()
             flash('Book deleted successfully!', 'success')
-    except pyodbc.Error as e:
+    except psycopg2.Error as e:
         flash(f'Error deleting book: {e}', 'error')
     finally:
         conn.close()
